@@ -36,31 +36,36 @@ use Magento\Catalog\Api\Data\ProductInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
 
 /**
- * Stops a composite product from being created unable to come back in stock.
+ * Keep composite products marked as automatically maintained.
  *
- * A product created through the API without stock data gets is_in_stock = 0 and
- * stock_status_changed_auto = 0. Core only moves a parent back INTO stock when
- * that flag is set:
+ * Core will only move a parent back INTO stock when stock_status_changed_auto is
+ * set:
  *
  *   ChangeParentStockStatus::isNeedToUpdateParent()
  *     return $parent->getIsInStock() !== $childrenIsInStock
  *         && ($childrenIsInStock === false || $parent->getStockStatusChangedAuto());
  *
- * So a catalogue imported structure-first, stock-second -- the order essentially
- * every ERP feed uses -- produces parents that are stuck out of stock
- * permanently, however much quantity their children later receive. The flag
- * means "this status was set automatically rather than by a human", and a
- * freshly created product has had no human decision applied to it.
+ * A product created through the API without stock data is written with
+ * is_in_stock = 0 and that flag at 0, so a catalogue imported structure-first,
+ * stock-second produces parents that can never recover.
  *
- * Hooked on product creation rather than on the stock item save because the
- * stock row is created at different points in different Magento versions: on
- * 2.4.8 it does not exist yet when StockItemRepository::save() runs, on 2.4.9 it
- * already does. Product creation is the same event on both.
+ * Setting the flag once at creation is not enough: core clears it again on every
+ * subsequent product save, including a save that says nothing about stock at all.
+ * Measured on a grouped product -- create (flag 1), attach links (flag 0), rename
+ * (flag 0). Since a real import always writes a parent at least twice, a
+ * creation-only fix silently stops working on the second call.
  *
- * Only creation is touched, so a merchant who later takes a configurable off
- * sale by hand keeps that decision.
+ * The flag is therefore re-applied on every save of a composite product.
+ *
+ * The boundary, stated plainly: a merchant who sets a composite out of stock by
+ * hand keeps that decision through child stock movements, because nothing
+ * re-derives a parent whose marker is cleared. It is reset by the next save of
+ * that parent, after which the parent follows its children again. Core behaves
+ * the same way -- it also clears the marker on the next product save -- so the
+ * decision was never durable across an edit. To take a composite off sale for
+ * good, disable it or take its children out of stock.
  */
-class MarkNewCompositeStockAsAutomatic
+class KeepCompositeStockAutomatic
 {
     /**
      * @var CompositeTypeResolver
@@ -73,11 +78,6 @@ class MarkNewCompositeStockAsAutomatic
     private $setAutomaticStockStatusFlag;
 
     /**
-     * @var bool[]
-     */
-    private $isNewBySubjectId = [];
-
-    /**
      * @param \BroCode\CompositeStockStatus\Model\CompositeTypeResolver $compositeTypeResolver
      * @param \BroCode\CompositeStockStatus\Model\ResourceModel\SetAutomaticStockStatusFlag $setAutomaticStockStatusFlag
      */
@@ -87,25 +87,6 @@ class MarkNewCompositeStockAsAutomatic
     ) {
         $this->compositeTypeResolver = $compositeTypeResolver;
         $this->setAutomaticStockStatusFlag = $setAutomaticStockStatusFlag;
-    }
-
-    /**
-     * Remember whether this was a create, before the save assigns an id.
-     *
-     * @param \Magento\Catalog\Api\ProductRepositoryInterface $subject
-     * @param \Magento\Catalog\Api\Data\ProductInterface $product
-     * @param bool $saveOptions
-     * @return array
-     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
-     */
-    public function beforeSave(
-        ProductRepositoryInterface $subject,
-        ProductInterface $product,
-        $saveOptions = false
-    ): array {
-        $this->isNewBySubjectId[spl_object_id($product)] = !$product->getId();
-
-        return [$product, $saveOptions];
     }
 
     /**
@@ -122,12 +103,7 @@ class MarkNewCompositeStockAsAutomatic
         ProductInterface $product,
         $saveOptions = false
     ): ProductInterface {
-        $key = spl_object_id($product);
-        $wasNew = $this->isNewBySubjectId[$key] ?? false;
-        unset($this->isNewBySubjectId[$key]);
-
-        if ($wasNew
-            && $result->getId()
+        if ($result->getId()
             && $this->compositeTypeResolver->isCompositeType((string) $result->getTypeId())
         ) {
             $this->setAutomaticStockStatusFlag->execute((int) $result->getId());

@@ -30,9 +30,15 @@ classes:
 - `SourceItemsSaveInterface` — the recompute. It short-circuits in single-source
   mode, where core already does the work.
 
-It does **not** touch bundle or grouped parents in multi-source: those types have
-their own index select builders, which have not been measured here. Only the
-configurable path is verified.
+All three composite types are covered — configurable, bundle and grouped — each
+with its own index select builder and its own expression shape. The rewrite is
+driven by two narrow patterns and is a no-op on anything it does not recognise.
+
+One genuine platform constraint sits underneath this: a bundle whose shipment
+type is **Ship Together** cannot have multi-source children at all. Magento
+refuses the source assignment outright with a validation error. Multi-source
+bundles must ship separately, which is core behaviour and not something this
+module changes.
 
 ## The manual-override boundary
 

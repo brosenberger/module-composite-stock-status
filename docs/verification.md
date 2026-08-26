@@ -96,3 +96,26 @@ said salable. That was a stale request-level cache, caused by the probe writing
 the same process. Index tables were the trustworthy signal; the API answer was
 not. Raw SQL in a fixture buys speed and costs cache coherence.
 
+## Bundle and grouped
+
+Same multi-source rig, parents created the way an import creates them:
+
+| type | core: salable in stock B | with the module |
+|---|---|---|
+| grouped | 0 | **1** |
+| bundle | 0 | **1** |
+
+Both were also confirmed to have the frozen flag: with a parent starting healthy,
+core left `is_in_stock = 1` when the children went out of stock at the default
+source, while the module correctly moved it to 0 and kept stock B salable.
+
+Two things surfaced while building that rig:
+
+- A **Ship Together** bundle cannot have multi-source children at all — Magento
+  rejects the source assignment with a validation error. Multi-source bundles
+  must ship separately.
+- Grouped's expression uses the alias `child_stock`, not `stock`. A rewrite that
+  hardcoded `MAX(stock.is_salable)` would have produced invalid SQL for grouped,
+  which is why the plugin captures the original sub-expression instead of
+  substituting a fixed one.
+

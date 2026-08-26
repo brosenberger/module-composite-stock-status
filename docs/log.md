@@ -42,3 +42,19 @@ stale_after: 2027-08-26T00:00:00Z
   `Zend_Db_Expr` and the fix silently did nothing.
 * Verified on 2.4.8-p5 and 2.4.9. 20 unit tests, 5 integration tests.
 
+## 2026-08-26 — bundle and grouped, and a durability fix
+
+* Extended the index rewrite to bundle and grouped, which have the same veto in
+  two other expression shapes. Grouped uses a different table alias, so the
+  rewrite now captures the original sub-expression rather than substituting a
+  fixed one.
+* `MarkNewCompositeStockAsAutomatic` became `KeepCompositeStockAutomatic`: core
+  clears the flag on *every* product save, not just later ones, so applying it
+  only at creation silently stopped working on an import's second write.
+* Integration fixture rebuilt around a real configurable attribute. The previous
+  `catalog_product_super_link`-only fixture could not be re-saved at all — the
+  configurable validator rejects children sharing an empty attribute value.
+* Corrected the documented boundary: a manual out-of-stock on a parent *does*
+  survive child stock movement, and is reset by the next save of that parent.
+* 20 unit tests, 6 integration tests.
+

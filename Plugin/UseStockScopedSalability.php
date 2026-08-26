@@ -35,33 +35,47 @@ use Magento\Framework\DB\Select;
 /**
  * Stop a secondary stock's salability being vetoed by the default stock's flag.
  *
- * The sibling index select for configurable parents computes:
+ * Each composite type builds its sibling index select differently, but all three
+ * fold the parent's legacy cataloginventory_stock_item row into the answer:
  *
- *   IS_SALABLE => IF(inventory_stock_item.is_in_stock = 0, 0, MAX(stock.is_salable))
+ *   configurable  IF(inventory_stock_item.is_in_stock = 0, 0, MAX(stock.is_salable))
+ *   grouped       IF(inventory_stock_item.is_in_stock = 0, 0, MAX(child_stock.is_salable))
+ *   bundle        IF(legacy_stock_item.is_in_stock = 0 OR options.sku IS NULL, 0, ...)
  *
- * where inventory_stock_item is joined on the parent's row for the DEFAULT stock:
+ * Configurable and bundle join that row on the DEFAULT stock explicitly; grouped
+ * joins it with no stock filter at all, which comes to the same thing because the
+ * legacy table only ever holds the legacy stock. These builders only ever run for
+ * NON-default stocks -- InventoryIndexer's Stock\Strategy\Sync and
+ * SkuListsProcessor both skip the default stock -- so in every case a value
+ * scoped to one stock vetoes the answer for another.
  *
- *   AND inventory_stock_item.stock_id = <default stock id>
+ * A parent whose children are genuinely salable in a secondary stock is indexed
+ * unsalable there. Combined with core refusing to maintain that flag at all once
+ * a second source exists, an imported parent starts at zero and is unsalable
+ * everywhere, permanently.
  *
- * This builder only ever runs for NON-default stocks -- the stock indexer skips
- * the default stock outright -- so the join imports a value scoped to a
- * different stock and lets it veto the answer. A parent whose children really
- * are salable in a secondary stock is indexed unsalable there because of the
- * default stock's flag. That is the corruption reported as
- * magento/inventory#3350, and the reason core refuses to maintain composite
- * parent status at all once a second source exists.
+ * Two rewrites, deliberately narrow. Anything that does not match exactly is left
+ * untouched: a silently mangled index select would be far worse than an unfixed
+ * one, so a future change to these expressions must fail visibly as the bug
+ * returning, not as broken SQL.
  *
- * Rewriting the column to MAX(stock.is_salable) makes each stock answer from its
- * own data. The now-unused LEFT JOIN is left in place: it selects no columns and
- * matches at most one row, so it cannot change the result.
- *
- * Written as a plugin rather than a preference because the class differs across
+ * Written as a plugin rather than a preference because the classes differ across
  * versions -- 2.4.8 implements SelectBuilderInterface::execute(), 2.4.9
  * implements SiblingSelectBuilderInterface::getSelect() -- and a plugin method
  * for a method the subject does not have is simply never called.
  */
 class UseStockScopedSalability
 {
+    /**
+     * IF(<alias>.is_in_stock = 0, 0, <answer>) -- configurable and grouped.
+     */
+    private const VETO_WRAPPER = '/^IF\(\s*\w+\.is_in_stock\s*=\s*0\s*,\s*0\s*,\s*(.+)\)$/s';
+
+    /**
+     * "<alias>.is_in_stock = 0 OR " as one term of a larger condition -- bundle.
+     */
+    private const VETO_TERM = '/\w+\.is_in_stock\s*=\s*0\s+OR\s+/';
+
     /**
      * Magento 2.4.8 and earlier.
      *
@@ -101,11 +115,12 @@ class UseStockScopedSalability
         foreach ($columns as $column) {
             [$correlation, $expression, $alias] = array_pad((array) $column, 3, null);
 
-            // The builder passes this column as a Zend_Db_Expr, not a string.
+            // The builders pass this column as a Zend_Db_Expr, not a string.
             $rendered = $expression instanceof \Zend_Db_Expr ? (string) $expression : $expression;
+            $stripped = is_string($rendered) ? $this->strip($rendered) : null;
 
-            if (is_string($rendered) && str_contains($rendered, 'inventory_stock_item.is_in_stock')) {
-                $expression = new \Zend_Db_Expr('MAX(stock.is_salable)');
+            if ($stripped !== null) {
+                $expression = new \Zend_Db_Expr($stripped);
                 $changed = true;
             }
 
@@ -117,5 +132,28 @@ class UseStockScopedSalability
         }
 
         return $select;
+    }
+
+    /**
+     * Remove the legacy-flag veto, or return null when the expression is not one
+     * this plugin recognises.
+     *
+     * @param string $expression
+     * @return string|null
+     */
+    private function strip(string $expression): ?string
+    {
+        if (!str_contains($expression, '.is_in_stock')) {
+            return null;
+        }
+
+        $matches = [];
+        if (preg_match(self::VETO_WRAPPER, trim($expression), $matches)) {
+            return trim($matches[1]);
+        }
+
+        $reduced = preg_replace(self::VETO_TERM, '', $expression, 1);
+
+        return $reduced !== null && $reduced !== $expression ? $reduced : null;
     }
 }

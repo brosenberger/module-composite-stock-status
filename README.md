@@ -41,8 +41,11 @@ Verified on **2.4.8-p5** and **2.4.9**, single-source mode, MSI enabled.
 
 A composite product's stock status is by definition derived from its children,
 so a *newly created* composite has had no human decision applied to it and
-should start in the automatic state. On creation only, the module sets
-`stock_status_changed_auto = 1`, and core does the rest:
+should start in the automatic state. The module keeps `stock_status_changed_auto = 1` on composite products, and core
+does the rest. It re-applies on **every** save, not just creation: core clears the
+flag again on any later product save — measured on a grouped product as create
+(1), attach links (0), rename (0) — so a creation-only fix stops working on the
+second write, which every real import performs.
 
 | step | parent `is_in_stock` | parent `auto` |
 |---|---|---|
@@ -51,8 +54,11 @@ should start in the automatic state. On creation only, the module sets
 | every child taken out of stock | **0** | 1 |
 | children restocked again | **1** | 1 |
 
-Because only creation is touched, a merchant who later takes a configurable off
-sale by hand keeps that decision.
+A merchant who takes a composite off sale by hand keeps that decision through
+child stock movements; it is reset by the next save of that parent, after which
+the parent follows its children again. Core behaves the same way, so the decision
+was never durable across an edit. To take a composite off sale for good, disable
+it or take its children out of stock.
 
 ## The second problem: multi-source
 
@@ -64,12 +70,12 @@ into something worse than the first:
    assigned to no stock, no website and no product — stops composite parent
    maintenance completely, so the parent's stored flag freezes at whatever it
    last held.
-2. `InventoryConfigurableProductIndexer\\Indexer\\SelectBuilder` computes a
-   parent's salability for a stock as
-   `IF(inventory_stock_item.is_in_stock = 0, 0, MAX(stock.is_salable))`, joining
-   `inventory_stock_item` on the **default** stock. That builder only ever runs
-   for *non-default* stocks — the indexer skips the default stock outright — so
-   every secondary stock's answer is vetoed by the default stock's flag.
+2. Each composite type's index select folds the parent's legacy stock row into
+   the answer — configurable and bundle join it on the **default** stock
+   explicitly, grouped joins it with no stock filter at all. Those builders only
+   ever run for *non-default* stocks, since the indexer skips the default stock
+   outright, so in every case a value scoped to one stock vetoes another stock's
+   answer. All three types are affected: configurable, bundle and grouped.
 
 Frozen flag plus veto means: an API-created configurable starts at
 `is_in_stock = 0`, can never be updated, and is therefore **unsalable in every

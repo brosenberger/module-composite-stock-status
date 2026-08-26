@@ -2,8 +2,8 @@
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
     <type name="Magento\Catalog\Api\ProductRepositoryInterface">
-        <plugin name="brocode_mark_new_composite_stock_as_automatic"
-                type="BroCode\CompositeStockStatus\Plugin\MarkNewCompositeStockAsAutomatic"/>
+        <plugin name="brocode_keep_composite_stock_automatic"
+                type="BroCode\CompositeStockStatus\Plugin\KeepCompositeStockAutomatic"/>
     </type>
     <type name="Magento\Framework\Console\CommandList">
         <arguments>
@@ -35,6 +35,14 @@
     -->
     <type name="Magento\InventoryConfigurableProductIndexer\Indexer\SelectBuilder">
         <plugin name="brocode_use_stock_scoped_salability"
+                type="BroCode\CompositeStockStatus\Plugin\UseStockScopedSalability"/>
+    </type>
+    <type name="Magento\InventoryGroupedProductIndexer\Indexer\SelectBuilder">
+        <plugin name="brocode_use_stock_scoped_salability_grouped"
+                type="BroCode\CompositeStockStatus\Plugin\UseStockScopedSalability"/>
+    </type>
+    <type name="Magento\InventoryBundleProductIndexer\Indexer\SelectBuilder">
+        <plugin name="brocode_use_stock_scoped_salability_bundle"
                 type="BroCode\CompositeStockStatus\Plugin\UseStockScopedSalability"/>
     </type>
     <type name="Magento\InventoryApi\Api\SourceItemsSaveInterface">

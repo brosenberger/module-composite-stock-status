@@ -84,14 +84,17 @@ On an install with two or more **enabled** sources, two separate defects compoun
 source — assigned to no stock, no website and no product — freezes every
 composite parent's stored flag at whatever it last held.
 
-**Two: secondary stocks are vetoed by the default stock.**
-`InventoryConfigurableProductIndexer\Indexer\SelectBuilder` builds
+**Two: secondary stocks are vetoed by the default stock.** Each composite type
+builds this differently, and all three fold in the parent's legacy row:
 
 ```sql
-IF(inventory_stock_item.is_in_stock = 0, 0, MAX(stock.is_salable))
+configurable  IF(inventory_stock_item.is_in_stock = 0, 0, MAX(stock.is_salable))
+grouped       IF(inventory_stock_item.is_in_stock = 0, 0, MAX(child_stock.is_salable))
+bundle        IF(legacy_stock_item.is_in_stock = 0 OR options.sku IS NULL, 0, ...)
 ```
 
-with `inventory_stock_item` joined on `stock_id = <default stock id>`. That
+Configurable and bundle join that row on `stock_id = <default stock id>`; grouped
+joins it with no stock filter, which amounts to the same thing. Those
 builder only ever runs for **non-default** stocks — `Stock\Strategy\Sync` and
 `SkuListsProcessor` both `continue` on the default stock — so the join imports a
 value scoped to a different stock and lets it veto the result.
@@ -109,4 +112,12 @@ magento/inventory#3350, and this module reproduced it before fixing the veto.
 
 So the two fixes are a pair. The veto must go first; only then is running the
 recompute in multi-source safe.
+
+## Why the flag is re-applied on every save
+
+Setting it once at creation is not durable: core clears it again on the next
+product save, and on every one after that. Measured on a grouped product — create
+`auto=1`, attach links `auto=0`, rename `auto=0`. Since an import writes a parent
+at least twice (create, then attach children or options), a creation-only fix
+stops working on the second call and looks like it never worked.
 

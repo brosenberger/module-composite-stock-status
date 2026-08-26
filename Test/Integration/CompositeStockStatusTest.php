@@ -32,7 +32,13 @@ namespace BroCode\CompositeStockStatus\Test\Integration;
 
 use BroCode\CompositeStockStatus\Model\ParentStockReviver;
 use Magento\Catalog\Api\Data\ProductInterfaceFactory;
+use Magento\Catalog\Api\Data\ProductAttributeInterfaceFactory;
+use Magento\Catalog\Api\ProductAttributeManagementInterface;
+use Magento\Catalog\Api\ProductAttributeRepositoryInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
+use Magento\ConfigurableProduct\Api\Data\OptionInterfaceFactory;
+use Magento\ConfigurableProduct\Api\Data\OptionValueInterfaceFactory;
+use Magento\Eav\Api\Data\AttributeOptionInterfaceFactory;
 use Magento\CatalogInventory\Api\StockRegistryInterface;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Framework\App\ResourceConnection;
@@ -58,6 +64,7 @@ class CompositeStockStatusTest extends TestCase
 {
     private const PARENT_SKU = 'brocode-css-parent';
     private const CHILD_SKUS = ['brocode-css-child-1', 'brocode-css-child-2'];
+    private const ATTRIBUTE = 'brocode_css_option';
 
     /**
      * @var ProductRepositoryInterface
@@ -89,6 +96,11 @@ class CompositeStockStatusTest extends TestCase
      */
     private $registry;
 
+    /**
+     * @var \Magento\Framework\ObjectManagerInterface
+     */
+    private $objectManager;
+
     protected function setUp(): void
     {
         $objectManager = Bootstrap::getObjectManager();
@@ -98,6 +110,7 @@ class CompositeStockStatusTest extends TestCase
         $this->resource = $objectManager->get(ResourceConnection::class);
         $this->reviver = $objectManager->get(ParentStockReviver::class);
         $this->registry = $objectManager->get(Registry::class);
+        $this->objectManager = $objectManager;
 
         $this->removeFixtureProducts();
     }
@@ -142,22 +155,62 @@ class CompositeStockStatusTest extends TestCase
     }
 
     /**
-     * The module must not override a human. Only creation is touched, so a
-     * merchant who deliberately takes a configurable off sale keeps it off sale.
+     * The documented boundary, pinned so it cannot move silently.
+     *
+     * A manual out-of-stock on a composite parent survives child stock movement,
+     * because nothing re-derives the parent while its marker is cleared. It is
+     * reset by the next save of that parent -- which is also what core does, so
+     * the decision was never durable across an edit either way.
      */
-    public function testAManualOutOfStockDecisionIsNotOverridden(): void
+    public function testAManualOutOfStockSurvivesUntilTheParentIsSavedAgain(): void
     {
         $this->createCatalogue();
         $this->stockChildren();
 
-        // The admin form's "set this configurable out of stock by hand" write.
         $stockItem = $this->stockRegistry->getStockItemBySku(self::PARENT_SKU);
         $stockItem->setIsInStock(false);
         $stockItem->setStockStatusChangedAuto(0);
         $this->stockRegistry->updateStockItemBySku(self::PARENT_SKU, $stockItem);
 
-        $this->assertSame(0, $this->parentChangedAuto(), 'the manual decision must be recorded');
-        $this->assertSame(0, $this->parentIsInStock(), 'and it must stick');
+        $this->assertSame(0, $this->parentIsInStock(), 'precondition: the parent is off sale');
+
+        $this->unstockChildren();
+        $this->stockChildren();
+
+        $this->assertSame(0, $this->parentIsInStock(), 'child stock movement alone does not overrule it');
+        $this->assertSame(0, $this->parentChangedAuto(), 'and the marker stays cleared');
+
+        // the next save of the parent puts it back under automatic control
+        $parent = $this->productRepository->get(self::PARENT_SKU, true, null, true);
+        $parent->setName(self::PARENT_SKU . ' edited');
+        $this->productRepository->save($parent);
+
+        $this->assertSame(1, $this->parentChangedAuto(), 'saving the parent restores automatic control');
+
+        $this->unstockChildren();
+        $this->stockChildren();
+
+        $this->assertSame(1, $this->parentIsInStock(), 'after which the parent follows its children again');
+    }
+
+    /**
+     * Core clears the marker on every product save, so setting it once at
+     * creation is not enough -- the second write of a normal import loses it.
+     */
+    public function testTheMarkerSurvivesASecondProductSave(): void
+    {
+        $this->createCatalogue();
+        $this->assertSame(1, $this->parentChangedAuto(), 'set at creation');
+
+        $parent = $this->productRepository->get(self::PARENT_SKU, true, null, true);
+        $parent->setName(self::PARENT_SKU . ' renamed');
+        $this->productRepository->save($parent);
+
+        $this->assertSame(
+            1,
+            $this->parentChangedAuto(),
+            'and re-applied on the next save, which core would otherwise clear'
+        );
     }
 
     /**
@@ -201,7 +254,10 @@ class CompositeStockStatusTest extends TestCase
      */
     private function createCatalogue(): void
     {
-        foreach (self::CHILD_SKUS as $sku) {
+        $optionIds = $this->attributeOptionIds();
+        $childIds = [];
+
+        foreach (array_values(self::CHILD_SKUS) as $i => $sku) {
             $child = $this->productFactory->create();
             $child->setSku($sku);
             $child->setName($sku);
@@ -211,7 +267,9 @@ class CompositeStockStatusTest extends TestCase
             $child->setStatus(1);
             $child->setVisibility(1);
             $child->setWebsiteIds([1]);
+            $child->setData(self::ATTRIBUTE, $optionIds[$i]);
             $this->productRepository->save($child);
+            $childIds[] = (int) $this->productRepository->get($sku)->getId();
         }
 
         $parent = $this->productFactory->create();
@@ -223,18 +281,94 @@ class CompositeStockStatusTest extends TestCase
         $parent->setStatus(1);
         $parent->setVisibility(4);
         $parent->setWebsiteIds([1]);
-        $this->productRepository->save($parent);
 
-        // catalog_product_super_link is all ChangeParentStockStatus reads, so the
-        // link rows are written directly rather than building a full attribute
-        // configuration this test would never assert on.
-        $connection = $this->resource->getConnection();
-        foreach (self::CHILD_SKUS as $sku) {
-            $connection->insertOnDuplicate(
-                $this->resource->getTableName('catalog_product_super_link'),
-                ['parent_id' => $this->productId(self::PARENT_SKU), 'product_id' => $this->productId($sku)],
-                ['parent_id']
+        $attribute = $this->objectManager->get(ProductAttributeRepositoryInterface::class)->get(self::ATTRIBUTE);
+        $valueFactory = $this->objectManager->get(OptionValueInterfaceFactory::class);
+        $values = [];
+        foreach ($optionIds as $optionId) {
+            $value = $valueFactory->create();
+            $value->setValueIndex($optionId);
+            $values[] = $value;
+        }
+
+        $option = $this->objectManager->get(OptionInterfaceFactory::class)->create();
+        $option->setAttributeId((string) $attribute->getAttributeId());
+        $option->setLabel($attribute->getDefaultFrontendLabel());
+        $option->setPosition(0);
+        $option->setValues($values);
+
+        $extension = $parent->getExtensionAttributes();
+        $extension->setConfigurableProductOptions([$option]);
+        $extension->setConfigurableProductLinks($childIds);
+        $parent->setExtensionAttributes($extension);
+
+        $this->productRepository->save($parent);
+    }
+
+    /**
+     * A real configurable attribute, because a fixture built from bare
+     * catalog_product_super_link rows cannot be re-saved -- the configurable
+     * validator rejects children that share an (empty) attribute value.
+     *
+     * @return int[]
+     */
+    private function attributeOptionIds(): array
+    {
+        $attributeRepository = $this->objectManager->get(ProductAttributeRepositoryInterface::class);
+
+        try {
+            $attribute = $attributeRepository->get(self::ATTRIBUTE);
+        } catch (NoSuchEntityException $e) {
+            $optionFactory = $this->objectManager->get(AttributeOptionInterfaceFactory::class);
+            $options = [];
+            foreach (['One', 'Two'] as $label) {
+                $option = $optionFactory->create();
+                $option->setLabel($label);
+                $options[] = $option;
+            }
+
+            $attribute = $this->objectManager->get(ProductAttributeInterfaceFactory::class)->create();
+            $attribute->setAttributeCode(self::ATTRIBUTE);
+            $attribute->setEntityTypeId(4);
+            $attribute->setFrontendInput('select');
+            $attribute->setFrontendLabel('BroCode CSS Option');
+            $attribute->setIsUserDefined(true);
+            $attribute->setScope('global');
+            $attribute->setIsRequired(false);
+            $attribute->setIsGlobal(1);
+            $attribute->setOptions($options);
+            $attributeRepository->save($attribute);
+
+            $attribute = $attributeRepository->get(self::ATTRIBUTE);
+            $groupId = $this->resource->getConnection()->fetchOne(
+                'SELECT attribute_group_id FROM ' . $this->resource->getTableName('eav_attribute_group')
+                . ' WHERE attribute_set_id = ? ORDER BY sort_order LIMIT 1',
+                [4]
             );
+            $this->objectManager->get(ProductAttributeManagementInterface::class)
+                ->assign(4, (int) $groupId, self::ATTRIBUTE, 100);
+        }
+
+        $ids = [];
+        foreach ($attribute->getOptions() as $option) {
+            if ($option->getValue() !== '' && $option->getValue() !== null) {
+                $ids[] = (int) $option->getValue();
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return void
+     */
+    private function unstockChildren(): void
+    {
+        foreach (self::CHILD_SKUS as $sku) {
+            $stockItem = $this->stockRegistry->getStockItemBySku($sku);
+            $stockItem->setQty(0);
+            $stockItem->setIsInStock(false);
+            $this->stockRegistry->updateStockItemBySku($sku, $stockItem);
         }
     }
 

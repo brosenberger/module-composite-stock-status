@@ -32,13 +32,13 @@ namespace BroCode\CompositeStockStatus\Test\Unit\Plugin;
 
 use BroCode\CompositeStockStatus\Model\CompositeTypeResolver;
 use BroCode\CompositeStockStatus\Model\ResourceModel\SetAutomaticStockStatusFlag;
-use BroCode\CompositeStockStatus\Plugin\MarkNewCompositeStockAsAutomatic;
+use BroCode\CompositeStockStatus\Plugin\KeepCompositeStockAutomatic;
 use Magento\Catalog\Api\Data\ProductInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
-class MarkNewCompositeStockAsAutomaticTest extends TestCase
+class KeepCompositeStockAutomaticTest extends TestCase
 {
     /**
      * @var CompositeTypeResolver&MockObject
@@ -56,7 +56,7 @@ class MarkNewCompositeStockAsAutomaticTest extends TestCase
     private $subject;
 
     /**
-     * @var MarkNewCompositeStockAsAutomatic
+     * @var KeepCompositeStockAutomatic
      */
     private $plugin;
 
@@ -65,88 +65,62 @@ class MarkNewCompositeStockAsAutomaticTest extends TestCase
         $this->compositeTypeResolver = $this->createMock(CompositeTypeResolver::class);
         $this->setFlag = $this->createMock(SetAutomaticStockStatusFlag::class);
         $this->subject = $this->createMock(ProductRepositoryInterface::class);
-        $this->plugin = new MarkNewCompositeStockAsAutomatic(
-            $this->compositeTypeResolver,
-            $this->setFlag
-        );
+        $this->plugin = new KeepCompositeStockAutomatic($this->compositeTypeResolver, $this->setFlag);
     }
 
-    /**
-     * The whole point: a composite created without stock data must not be
-     * created unable to recover.
-     */
-    public function testFlagsANewlyCreatedComposite(): void
+    public function testFlagsACompositeProduct(): void
     {
         $this->compositeTypeResolver->method('isCompositeType')->with('configurable')->willReturn(true);
         $this->setFlag->expects($this->once())->method('execute')->with(7);
 
-        $this->saveCycle($this->product(null, 'configurable'), $this->product(7, 'configurable'));
+        $product = $this->product(7, 'configurable');
+        $this->plugin->afterSave($this->subject, $product, $product);
+    }
+
+    /**
+     * Core clears the flag on EVERY subsequent product save, not just the first,
+     * so a creation-only fix silently stops working on the second write -- and a
+     * real import always writes a parent at least twice.
+     */
+    public function testFlagsAnExistingCompositeOnEverySave(): void
+    {
+        $this->compositeTypeResolver->method('isCompositeType')->willReturn(true);
+        $this->setFlag->expects($this->exactly(3))->method('execute')->with(7);
+
+        $product = $this->product(7, 'grouped');
+        $this->plugin->afterSave($this->subject, $product, $product);
+        $this->plugin->afterSave($this->subject, $product, $product);
+        $this->plugin->afterSave($this->subject, $product, $product);
     }
 
     /**
      * A simple product's flag is genuinely meaningful -- it is what stops a
      * manual "out of stock" being undone by the next quantity write.
      */
-    public function testIgnoresANewlyCreatedSimpleProduct(): void
+    public function testIgnoresASimpleProduct(): void
     {
         $this->compositeTypeResolver->method('isCompositeType')->with('simple')->willReturn(false);
         $this->setFlag->expects($this->never())->method('execute');
 
-        $this->saveCycle($this->product(null, 'simple'), $this->product(7, 'simple'));
+        $product = $this->product(7, 'simple');
+        $this->plugin->afterSave($this->subject, $product, $product);
     }
 
-    /**
-     * Only creation is touched. A merchant who later takes a configurable off
-     * sale by hand keeps that decision -- otherwise this module would quietly
-     * override the admin on the next child stock write.
-     */
-    public function testIgnoresAnUpdateToAnExistingComposite(): void
+    public function testIgnoresAProductWithoutAnId(): void
     {
         $this->compositeTypeResolver->expects($this->never())->method('isCompositeType');
         $this->setFlag->expects($this->never())->method('execute');
 
-        $this->saveCycle($this->product(7, 'configurable'), $this->product(7, 'configurable'));
+        $product = $this->product(null, 'configurable');
+        $this->plugin->afterSave($this->subject, $product, $product);
     }
 
-    /**
-     * Two products in flight at once must not borrow each other's "was new"
-     * answer -- a bulk import saves many products through one plugin instance.
-     */
-    public function testKeepsConcurrentSavesApart(): void
+    public function testReturnsTheSavedProduct(): void
     {
         $this->compositeTypeResolver->method('isCompositeType')->willReturn(true);
-        $this->setFlag->expects($this->once())->method('execute')->with(7);
+        $product = $this->product(7, 'bundle');
 
-        $existing = $this->product(3, 'configurable');
-        $fresh = $this->product(null, 'configurable');
-
-        $this->plugin->beforeSave($this->subject, $existing);
-        $this->plugin->beforeSave($this->subject, $fresh);
-
-        $this->plugin->afterSave($this->subject, $this->product(3, 'configurable'), $existing);
-        $this->plugin->afterSave($this->subject, $this->product(7, 'configurable'), $fresh);
-    }
-
-    /**
-     * afterSave without a matching beforeSave (another plugin short-circuited
-     * the call) must not be treated as a creation.
-     */
-    public function testTreatsAnUnpairedAfterSaveAsNotNew(): void
-    {
-        $this->setFlag->expects($this->never())->method('execute');
-
-        $this->plugin->afterSave($this->subject, $this->product(7, 'configurable'), $this->product(7, 'configurable'));
-    }
-
-    /**
-     * @param ProductInterface&MockObject $incoming
-     * @param ProductInterface&MockObject $saved
-     * @return void
-     */
-    private function saveCycle(MockObject $incoming, MockObject $saved): void
-    {
-        $this->plugin->beforeSave($this->subject, $incoming);
-        $this->plugin->afterSave($this->subject, $saved, $incoming);
+        $this->assertSame($product, $this->plugin->afterSave($this->subject, $product, $product));
     }
 
     /**
