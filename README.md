@@ -118,11 +118,62 @@ are all out of stock stays out of stock.
 
 ## What this module deliberately does not do
 
-It does not attempt to reconcile a catalogue that was already broken *before*
-installation in ways the repair command cannot see — see [Limits](docs/limits.md). That is a real gap, but the naive
-fix writes a parent flag derived from default-source data only and corrupts
-salability for non-default stocks (see magento/inventory#3350). It needs a
-per-stock answer rather than a single flag, and belongs upstream.
+**It does not make a manual out-of-stock on a composite permanent.** A merchant's
+decision survives child stock movement, but the next save of that parent puts it
+back under automatic control. Core does the same — it clears the marker on every
+product save — so the decision was never durable across an edit either way. To
+take a composite off sale for good, disable it or take its children out of stock.
+
+**It does not rewrite an index expression it does not recognise.** If a future
+Magento version changes one of the three select builders, the rewrite becomes a
+no-op and the defect returns *visibly*, rather than the plugin emitting broken
+SQL. Check [Verification](docs/verification.md) against your version before
+relying on it.
+
+**It does not touch simple products.** Their `stock_status_changed_auto` is a
+genuine merchant setting — it is what stops a manual out-of-stock being undone by
+the next quantity write — and is left alone.
+
+Full detail in [Limits](docs/limits.md).
+
+## Reported upstream
+
+Both defects have been reported to Magento repeatedly, from different angles and
+by different people. None of the reports has produced a fix, and two were closed
+without one — which is the reason this module exists.
+
+**The recompute being gated off** (the parent's stored status freezing):
+
+| Issue | Reported from | State |
+|---|---|---|
+| [magento2#36154](https://github.com/magento/magento2/issues/36154) | admin, custom stock: saving a child does not update the parent | **open**, Confirmed, P2, *dev in progress* |
+| [magento2#37960](https://github.com/magento/magento2/issues/37960) | REST, grouped: parent does not follow its children back in stock | **open**, Confirmed, P2, *ready for dev* |
+| [magento2#32192](https://github.com/magento/magento2/issues/32192) | CSV import, configurable — names `ParentItemProcessor::processStockForParent` as the bypassed mechanism | closed 2025-02 as completed, with no linked fix and still labelled *ready for dev* |
+
+**The default-stock veto** (secondary stocks answering with another stock's flag):
+
+| Issue | Reported from | State |
+|---|---|---|
+| [inventory#3350](https://github.com/magento/inventory/issues/3350) | the other direction — a parent marked unsalable for non-default stocks. Diagnoses the cause as the recompute "not taking the inventory setup into account at all" | closed as completed, still labelled *ready for grooming* |
+| [inventory#3454](https://github.com/magento/inventory/issues/3454) | parents permanently stuck out of stock through a self-referential read in the legacy indexer expression | **open**, awaiting confirmation |
+
+inventory#3350 is worth reading before changing any of this. It is what makes the
+gate look necessary — and it is why the two fixes here have to ship together.
+Lifting the gate on its own reproduces it exactly: the recompute writes a correct
+default-scoped flag, and the veto propagates it into secondary stocks. That was
+measured here before the veto was fixed.
+
+**Adjacent, useful for context:**
+
+| Issue | Why it is relevant | State |
+|---|---|---|
+| [magento2#18999](https://github.com/magento/magento2/issues/18999) | its payload contains `"stock_status_changed_auto": 0` — the field is public and writable, and a template copied from it latches every parent it touches | closed 2019 |
+| [magento2#40101](https://github.com/magento/magento2/issues/40101) | add-to-cart failing with `is_salable = 0` in `inventory_stock_3` after REST source-item writes: the veto's symptom, seen from the storefront | closed as *needs update* |
+| [magento2#36421](https://github.com/magento/magento2/issues/36421) | a genuinely fixed MSI reindex gap on the API path — different layer, often mistaken for this one | closed, P1, fixed |
+| [magento2#30088](https://github.com/magento/magento2/issues/30088), [inventory#3358](https://github.com/magento/inventory/issues/3358) | older reports of the same family | closed |
+
+A consolidated report covering both defects together, with the reproduction and
+the per-type fix, is drafted but not yet filed.
 
 ## Installation
 
