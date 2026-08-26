@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <type name="Magento\Catalog\Api\ProductRepositoryInterface">
+        <plugin name="brocode_mark_new_composite_stock_as_automatic"
+                type="BroCode\CompositeStockStatus\Plugin\MarkNewCompositeStockAsAutomatic"/>
+    </type>
+    <type name="Magento\Framework\Console\CommandList">
+        <arguments>
+            <argument name="commands" xsi:type="array">
+                <item name="brocodeCompositeStockRevive" xsi:type="object">
+                    BroCode\CompositeStockStatus\Console\Command\ReviveCompositeStockCommand
+                </item>
+            </argument>
+        </arguments>
+    </type>
+    <!--
+        Console commands are constructed when the CLI builds its command list,
+        which includes during setup:install. Without proxies this command's
+        service graph is built against a database that does not have a default
+        website yet, and the installer dies in Session\Config.
+    -->
+    <type name="BroCode\CompositeStockStatus\Console\Command\ReviveCompositeStockCommand">
+        <arguments>
+            <argument name="parentStockReviver" xsi:type="object">
+                BroCode\CompositeStockStatus\Model\ParentStockReviver\Proxy
+            </argument>
+            <argument name="appState" xsi:type="object">Magento\Framework\App\State\Proxy</argument>
+        </arguments>
+    </type>
+</config>

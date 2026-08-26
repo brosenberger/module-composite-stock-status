@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!--
+  Standalone unit-test config for BroCode_CompositeStockStatus.
+
+  From a Magento root with the module installed:
+    ddev exec vendor/bin/phpunit -c app/code/BroCode/CompositeStockStatus/phpunit.xml.dist
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
+         bootstrap="../../../../dev/tests/unit/framework/bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         beStrictAboutTestsThatDoNotTestAnything="true"
+         failOnWarning="true">
+    <testsuites>
+        <testsuite name="BroCode_CompositeStockStatus Unit Tests">
+            <directory>Test/Unit</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory suffix=".php">Model</directory>
+            <directory suffix=".php">Plugin</directory>
+            <directory suffix=".php">Console</directory>
+        </include>
+    </source>
+</phpunit>

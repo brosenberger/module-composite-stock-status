@@ -1,0 +1,33 @@
+{
+  "name": "brocode/module-composite-stock-status",
+  "version": "1.0.0",
+  "license": ["MIT"],
+  "authors": [
+    {
+      "name": "Benjamin Rosenberger",
+      "email": "bensch.rosenberger@gmail.com"
+    }
+  ],
+  "description": "Stop Magento 2 configurable, bundle and grouped products from being stuck out of stock forever after an API import",
+  "type": "magento2-module",
+  "require": {
+    "magento/framework": "*",
+    "magento/module-catalog": "*",
+    "magento/module-catalog-inventory": "*",
+    "magento/module-inventory-catalog-api": "*"
+  },
+  "autoload": {
+    "files": [
+      "registration.php"
+    ],
+    "psr-4": {
+      "BroCode\\CompositeStockStatus\\": ""
+    }
+  },
+  "funding": [
+    {
+      "type": "By me a coffee",
+      "url": "https://www.buymeacoffee.com/brosenberger"
+    }
+  ]
+}
