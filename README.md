@@ -80,7 +80,9 @@ are all out of stock stays out of stock.
 It does not touch **multi-source mode**. Every parent-stock recompute path in
 core is gated on `IsSingleSourceMode`, which is true only while fewer than two
 *enabled* sources exist — creating a second enabled source, even one assigned to
-nothing, stops parent maintenance completely. That is a real gap, but the naive
+nothing, stops parent maintenance completely. That is a reporting problem rather
+than a storefront one: salability stays correct, and only the stored flag the
+admin and the REST stock-item endpoint report goes stale. That is a real gap, but the naive
 fix writes a parent flag derived from default-source data only and corrupts
 salability for non-default stocks (see magento/inventory#3350). It needs a
 per-stock answer rather than a single flag, and belongs upstream.

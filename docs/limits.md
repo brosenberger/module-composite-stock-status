@@ -28,6 +28,12 @@ and no product** — flips that to false and stops composite parent maintenance
 entirely. Measured: with two enabled sources, taking every child out of stock
 left the parent `is_in_stock = 1`.
 
+What that does *not* do is break the storefront. Salability is still computed
+correctly in multi-source, so the product is hidden as it should be; only the
+stored flag goes stale — the value the admin grid, the product form and
+`GET /V1/stockItems/{sku}` report. The damage is to anything that reads the
+status back and believes it, not to what customers can buy.
+
 This module does not change that, deliberately. The naive fix runs the legacy
 recompute anyway, which derives the parent flag from default-source data only and
 marks parents unsalable for non-default stocks — reported as
