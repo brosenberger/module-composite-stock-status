@@ -5,6 +5,7 @@
         <sequence>
             <module name="Magento_CatalogInventory"/>
             <module name="Magento_InventoryCatalog"/>
+            <module name="Magento_InventoryConfigurableProductIndexer"/>
         </sequence>
     </module>
 </config>

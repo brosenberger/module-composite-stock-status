@@ -1,7 +1,9 @@
 {
   "name": "brocode/module-composite-stock-status",
-  "version": "1.0.0",
-  "license": ["MIT"],
+  "version": "1.1.0",
+  "license": [
+    "MIT"
+  ],
   "authors": [
     {
       "name": "Benjamin Rosenberger",
@@ -14,7 +16,9 @@
     "magento/framework": "*",
     "magento/module-catalog": "*",
     "magento/module-catalog-inventory": "*",
-    "magento/module-inventory-catalog-api": "*"
+    "magento/module-inventory-catalog-api": "*",
+    "magento/module-inventory-configurable-product-indexer": "*",
+    "magento/module-inventory-api": "*"
   },
   "autoload": {
     "files": [

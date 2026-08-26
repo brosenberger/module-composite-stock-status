@@ -28,4 +28,17 @@
             <argument name="appState" xsi:type="object">Magento\Framework\App\State\Proxy</argument>
         </arguments>
     </type>
+
+    <!--
+        Multi-source: two defects compound into a configurable that is unsalable
+        in every stock. See docs/mechanism.md.
+    -->
+    <type name="Magento\InventoryConfigurableProductIndexer\Indexer\SelectBuilder">
+        <plugin name="brocode_use_stock_scoped_salability"
+                type="BroCode\CompositeStockStatus\Plugin\UseStockScopedSalability"/>
+    </type>
+    <type name="Magento\InventoryApi\Api\SourceItemsSaveInterface">
+        <plugin name="brocode_recompose_composite_stock_in_multi_source"
+                type="BroCode\CompositeStockStatus\Plugin\RecomposeCompositeStockInMultiSource"/>
+    </type>
 </config>

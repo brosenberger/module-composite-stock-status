@@ -54,6 +54,41 @@ should start in the automatic state. On creation only, the module sets
 Because only creation is touched, a merchant who later takes a configurable off
 sale by hand keeps that decision.
 
+## The second problem: multi-source
+
+On an install with **two or more enabled sources**, two further defects compound
+into something worse than the first:
+
+1. Every parent-stock recompute path in core is gated on `IsSingleSourceMode`,
+   which is `count(enabled sources) < 2`. A second enabled source — even one
+   assigned to no stock, no website and no product — stops composite parent
+   maintenance completely, so the parent's stored flag freezes at whatever it
+   last held.
+2. `InventoryConfigurableProductIndexer\\Indexer\\SelectBuilder` computes a
+   parent's salability for a stock as
+   `IF(inventory_stock_item.is_in_stock = 0, 0, MAX(stock.is_salable))`, joining
+   `inventory_stock_item` on the **default** stock. That builder only ever runs
+   for *non-default* stocks — the indexer skips the default stock outright — so
+   every secondary stock's answer is vetoed by the default stock's flag.
+
+Frozen flag plus veto means: an API-created configurable starts at
+`is_in_stock = 0`, can never be updated, and is therefore **unsalable in every
+stock, permanently**. Measured on pure core, 2.4.9, five scenarios, all five
+`salable = 0` in both stocks including "in stock at both sources".
+
+This module fixes both: salability for a stock is derived from that stock's own
+data, and the parent recompute runs in multi-source too (it short-circuits in
+single-source mode, where core already does it). Result on the same five
+scenarios:
+
+| children | parent flag | salable, default stock | salable, second stock |
+|---|---|---|---|
+| in stock at both sources | 1 | 1 | 1 |
+| out at default, in at source B | 0 | 0 | **1** |
+| out at both | 0 | 0 | 0 |
+| back in at default only | 1 | 1 | **0** |
+| back in at both | 1 | 1 | 1 |
+
 ## Repairing a catalogue that is already stuck
 
 The plugin only helps products created after it is installed. For everything
@@ -77,12 +112,8 @@ are all out of stock stays out of stock.
 
 ## What this module deliberately does not do
 
-It does not touch **multi-source mode**. Every parent-stock recompute path in
-core is gated on `IsSingleSourceMode`, which is true only while fewer than two
-*enabled* sources exist — creating a second enabled source, even one assigned to
-nothing, stops parent maintenance completely. That is a reporting problem rather
-than a storefront one: salability stays correct, and only the stored flag the
-admin and the REST stock-item endpoint report goes stale. That is a real gap, but the naive
+It does not attempt to reconcile a catalogue that was already broken *before*
+installation in ways the repair command cannot see — see [Limits](docs/limits.md). That is a real gap, but the naive
 fix writes a parent flag derived from default-source data only and corrupts
 salability for non-default stocks (see magento/inventory#3350). It needs a
 per-stock answer rather than a single flag, and belongs upstream.

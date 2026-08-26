@@ -2,7 +2,7 @@
 okf_version: "0.2"
 type: Reference
 title: Limits of BroCode_CompositeStockStatus
-description: Multi-source mode, the manual-override boundary, and what ages.
+description: What the multi-source fix covers, the manual-override boundary, and what ages.
 resource: https://github.com/brosenberger/module-composite-stock-status
 tags: [magento2, inventory, configurable, bundle, grouped, stock-status, integration]
 generated:
@@ -14,34 +14,25 @@ stale_after: 2027-08-26T00:00:00Z
 
 # Limits
 
-## Multi-source mode is not addressed
+## What multi-source support does and does not cover
 
-Every parent-stock recompute path in core is gated on `IsSingleSourceMode`:
+The module makes composite parents behave correctly in multi-source mode by
+deriving each stock's salability from that stock's own data and by running the
+parent recompute that core gates off. It does this with two plugins on core
+classes:
 
-```php
-// Magento\InventoryCatalog\Model\IsSingleSourceMode
-return $searchResult->getTotalCount() < 2;   // enabled sources
-```
+- `InventoryConfigurableProductIndexer\Indexer\SelectBuilder` — the column
+  rewrite. The plugin carries both `afterExecute` (2.4.8 and earlier) and
+  `afterGetSelect` (2.4.9+), because the class changed interface between them.
+  **If a future version changes the expression again, the plugin deliberately
+  does nothing** rather than guess, so the defect returns silently. Check
+  `docs/verification.md` against your version before trusting it.
+- `SourceItemsSaveInterface` — the recompute. It short-circuits in single-source
+  mode, where core already does the work.
 
-Creating a **second enabled source — even one assigned to no stock, no website
-and no product** — flips that to false and stops composite parent maintenance
-entirely. Measured: with two enabled sources, taking every child out of stock
-left the parent `is_in_stock = 1`.
-
-What that does *not* do is break the storefront. Salability is still computed
-correctly in multi-source, so the product is hidden as it should be; only the
-stored flag goes stale — the value the admin grid, the product form and
-`GET /V1/stockItems/{sku}` report. The damage is to anything that reads the
-status back and believes it, not to what customers can buy.
-
-This module does not change that, deliberately. The naive fix runs the legacy
-recompute anyway, which derives the parent flag from default-source data only and
-marks parents unsalable for non-default stocks — reported as
-magento/inventory#3350. A correct fix needs a per-stock answer rather than one
-flag, and belongs upstream (magento/magento2#36154 is open, P2).
-
-If you run multi-source, treat parent stock flags as unmaintained and reconcile
-them yourself.
+It does **not** touch bundle or grouped parents in multi-source: those types have
+their own index select builders, which have not been measured here. Only the
+configurable path is verified.
 
 ## The manual-override boundary
 

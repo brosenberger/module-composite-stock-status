@@ -74,3 +74,39 @@ item, for two reasons:
 
 `stock_status_changed_auto` drives no index and no cache. It only tells core
 whether it may move the status on its own.
+
+## The multi-source pair
+
+On an install with two or more **enabled** sources, two separate defects compound.
+
+**One: the recompute is gated off.** All three parent-recompute call sites test
+`IsSingleSourceMode`, which is `count(enabled sources) < 2`. A second enabled
+source — assigned to no stock, no website and no product — freezes every
+composite parent's stored flag at whatever it last held.
+
+**Two: secondary stocks are vetoed by the default stock.**
+`InventoryConfigurableProductIndexer\Indexer\SelectBuilder` builds
+
+```sql
+IF(inventory_stock_item.is_in_stock = 0, 0, MAX(stock.is_salable))
+```
+
+with `inventory_stock_item` joined on `stock_id = <default stock id>`. That
+builder only ever runs for **non-default** stocks — `Stock\Strategy\Sync` and
+`SkuListsProcessor` both `continue` on the default stock — so the join imports a
+value scoped to a different stock and lets it veto the result.
+
+Together: an API-created configurable starts at `is_in_stock = 0`, the gate means
+it can never be corrected, and the veto turns that zero into "unsalable in every
+stock". Measured on pure core 2.4.9, every one of five scenarios gave
+`salable = 0` in both stocks — including "children in stock at both sources".
+
+Defect two is also why defect one's gate exists. Removing the gate alone makes
+things *worse*: the recompute then writes a correct default-scoped flag, and the
+veto propagates it into secondary stocks, marking parents unsalable in stocks
+whose children are fine. That is the corruption reported as
+magento/inventory#3350, and this module reproduced it before fixing the veto.
+
+So the two fixes are a pair. The veto must go first; only then is running the
+recompute in multi-source safe.
+
