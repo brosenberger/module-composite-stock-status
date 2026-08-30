@@ -33,8 +33,8 @@ and repeatedly, so the module does not simply force products in stock.
 
 ## Test suite
 
-* 12 unit tests.
-* 5 integration tests. With the module added to the integration installer's
+* 17 unit test methods (20 executed cases; one data provider expands to six).
+* 6 integration tests. With the module added to the integration installer's
   `disable-modules`, the two fix-specific tests fail and the invariants pass —
   so the suite genuinely discriminates rather than passing either way.
 

@@ -40,7 +40,7 @@ stale_after: 2027-08-26T00:00:00Z
   span both.
 * First attempt matched the column expression as a string; it arrives as a
   `Zend_Db_Expr` and the fix silently did nothing.
-* Verified on 2.4.8-p5 and 2.4.9. 20 unit tests, 5 integration tests.
+* Verified on 2.4.8-p5 and 2.4.9. 17 unit test methods (20 cases), 5 integration tests.
 
 ## 2026-08-26 — bundle and grouped, and a durability fix
 
@@ -56,5 +56,5 @@ stale_after: 2027-08-26T00:00:00Z
   configurable validator rejects children sharing an empty attribute value.
 * Corrected the documented boundary: a manual out-of-stock on a parent *does*
   survive child stock movement, and is reset by the next save of that parent.
-* 20 unit tests, 6 integration tests.
+* 17 unit test methods (20 cases), 6 integration tests.
 

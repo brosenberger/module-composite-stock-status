@@ -48,6 +48,16 @@ walks straight into it:
 Step 3 revives nothing. This is not indexer lag; the flag is the source of truth
 and the index reproduces it faithfully.
 
+**The boundary matters.** The parent must be created *before* its children are
+linked. If a single API call creates the parent already carrying its links or
+options, `ChangeParentStockStatus` runs inside that same save, sets
+`stock_status_changed_auto = 1`, and the parent is **not** latched — it is born
+`(is_in_stock = 0, auto = 1)` and recovers normally when stock arrives. Measured
+on `2.4-develop` (2026-08-30): a bare parent is born `(0, 0)` for configurable,
+bundle and grouped alike, while a parent created with its children linked is born
+`(0, 1)`. An importer that sends structure and links in one call never sees this
+defect, which is why it looks intermittent across projects.
+
 ## Why the fix hooks product creation
 
 The obvious hook is a plugin on `StockItemRepositoryInterface::save()` that
@@ -120,4 +130,22 @@ product save, and on every one after that. Measured on a grouped product — cre
 `auto=1`, attach links `auto=0`, rename `auto=0`. Since an import writes a parent
 at least twice (create, then attach children or options), a creation-only fix
 stops working on the second call and looks like it never worked.
+
+**Not reproduced on 2.4-develop (2026-08-30).** Re-measuring this on core trunk,
+no later save cleared the flag: a parent born `(0, 1)` still held `auto = 1` after
+a rename, and a bare parent born `(0, 0)` was never moved to `1` by attaching
+children. The only clearer in core is
+`Magento\ConfigurableProduct\Model\Plugin\UpdateStockChangedAuto`, a `beforeSave`
+plugin on the stock item **resource model** registered at
+`ConfigurableProduct/etc/di.xml:286`. It is **configurable-only**
+(`== Configurable::TYPE_CODE`), so it cannot explain a grouped measurement at all,
+and instrumenting it with a trace on every invocation produced **zero** output
+across four scenarios — it is registered but never reached on the product-save
+path.
+
+So on trunk the defect is entirely "born latched", not "latched again on every
+save". The re-apply-on-every-save behaviour is retained as defensive and is
+harmless where nothing clears the flag, but the original 2.4.8-p5 measurement
+above should be treated as unconfirmed until it is re-taken with the same
+instrumentation.
 
