@@ -106,6 +106,23 @@ catalogue where merchants set composite stock by hand.
 The behaviour this module works around was investigated against
 `magento/magento2@2.4-develop` and `magento/inventory@develop` in August 2026.
 
+### The latch (single source)
+
+* [magento/magento2#41174](https://github.com/magento/magento2/issues/41174) —
+  the consolidated report, including the boundary that makes this look
+  intermittent: the parent must be created *before* its children are linked.
+* [magento/magento2#41175](https://github.com/magento/magento2/pull/41175) —
+  the core fix. A composite's implicitly created stock item is marked as
+  automatically maintained, in the existing non-qty branch of
+  `StockItemRepository::save()`. `isNeedToUpdateParent()` is left untouched, so a
+  merchant's manual out-of-stock is still respected.
+
+**If that lands, this module's `KeepCompositeStockAutomatic` becomes redundant on
+the fixed versions** — but only for products created after the upgrade. Catalogues
+already carrying latched parents still need `brocode:composite-stock:revive` once.
+
+### The multi-source pair
+
 * [magento/inventory#3466](https://github.com/magento/inventory/issues/3466) —
   why core cannot fix the multi-source half the way this module does. Removing
   the `IsSingleSourceMode` gate alone reproduces
